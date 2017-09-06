@@ -14,9 +14,10 @@ control.
 DevBox contains all the the software packages you need to develop a Magento
 site, except for IDEs and web browsers. A local development environment
 typically starts with a database container (holding MySQL) and a web server
-container (holding the Magento source code). Other containers can be added as
-required for Varnish (recommended), Redis, RabbitMQ, and ElasticSearch. All
-containers run Linux inside.
+container (holding the Magento source code). On Mac and Windows, another
+container is used for file sharing (discussed below).  Other containers can be
+added as required for Varnish (recommended), Redis, RabbitMQ, and
+ElasticSearch. All containers run Linux inside.
 
 Developers mainly interact with the web container. The other containers are
 relatively shrink wrap.
@@ -43,16 +44,30 @@ Mac and Windows cannot directly access the file system inside the web container
   works fine. By default the volume mounts are commented out in the
   `docker-compose.yml` file for improved performance.
 
+* Docker volume mounts for Mac and Windows are slow for large projects like
+  Magento.
+
 * Some frontend developer tools like Gulp and Grunt rely on file watching
   "iNotify" file system events. Docker Volume mounting on Windows does not
   support iNotify events at this time.
 
 Where volume mounts are not suitable (specifically, the Magento source code
 directory on Mac and Windows), DevBox syncs the local and container file
-systems using a program called Unison. Whenever a file in the watched local file
-system is changed, it is copied into the web container, and vice versa. This
-allows IDEs to be natively used on a laptop (or desktop) - Unison copies file
-changes as soon as they are written to disk into the web conatiner.
+systems using a program called Unison. Whenever a file in the watched local
+file system is changed, it is copied into the web container, and vice versa.
+This allows IDEs to be natively used on a laptop (or desktop) - Unison copies
+file changes as soon as they are written to disk into the web conatiner.
+
+DevBox uses a similar approach to the "Docker Sync" project
+(http://docker-sync.io/) for file sharing, but only supports Unison.
+
+(Insiders secret: Unison is written in a language called OCaml. OCaml 4.01 and
+4.02 changed a serialization algorithm in a backwards incompatible way. So you
+need to make sure you have Unison binaries on Windows, Mac, and Linux compiled
+with the same version of OCaml. Brew + Debian:Stretch + the supplied Windows
+binary currently all match. If you try experimenting with other binaries,
+beware the pit of despair when things start going strange for no apparent
+reason!)
 
 # Installation
 
@@ -70,6 +85,7 @@ ready to get up and going with DevBox.
   (https://git-for-windows.github.io/). As well as Git, it includes SSH, an
   xterm terminal emulator, and a useful collection of commonly used Linux
   commands.
+* On Mac, install "Brew" (https://brew.sh/) if you have not done so already.
 
 ## Setting Up a New Environment
 
@@ -86,20 +102,27 @@ this GitHub repository to the project directory.
   * Click on the green button "Clone or Download" and select "Download ZIP".
   * Extract the ZIP file contents into the project directory.
 
+It is common to modify these downloaded files and delete unwanted files. For
+example, on Mac it is common to delete Windows BAT files.
+
 ### 2. Review and Update the docker-compose.yml File
 
 Review the `docker-compose.yml` file in a text editor, making necessary
 adjustments as described by comments in the file. This includes:
 
-* To enable volume mounting for the Magento source code (e.g. for Linux
-  laptops), uncomment the volume mount line for `/var/www` in the provided
-  `docker-compose.yml` file. For Unison (e.g. for Mac and Windows), ensure the
-  line is commented out.
+* For Mac and Windows, make sure the `/var/www` volume is uncommented and
+  the `./shared/www:/var/www` line is commented out. Make sure the "unison"
+  service is also uncommented. This is required for Unison to access the
+  Magento source code.
+
+* For Linux, direct file sharing can be used. Make sure the
+  `./shared/www:/var/www` line is uncommented and the `/var/www` line is
+  commented out. Also comment out the "unison" service as it is not required.
 
 * Check the port numbers. By default Docker will allocate random free port
-  numbers. Change "80" to "8080:80" if you want the web server port to be
-  always 8080. You cannot run different containers at the same time using
-  the same port numbers.
+  numbers. Change ports such as "80" to "8080:80" if you want the web server
+  port to be always 8080. You cannot run different containers at the same time
+  using the same port numbers.
 
 * The recommended way to create and update projects is via Composer, a PHP
   package manager. Magento provides a Composer repository from which Magento
@@ -145,17 +168,21 @@ need to use `winpty`. In that case you must use the following command.
 
 In general this works well, but on Windows the 'exec' command will exit if you
 press CTRL+Z. If you like using CTRL+Z in Linux, this is rather annoying, so
-SSH access is recommended instead. SSH is currently only supported in the 'web'
-service container.
+SSH access is recommended instead.
 
 The `m2ssh` BAT and bash scripts automatically pick up the port number from the
-`docker-compose.yml` file and logs on to the 'magento2' account.
+`docker-compose.yml` file and logs on to the 'magento2' account of the 'web'
+container.
 
     ./m2ssh
 
-If you are running Docker in VirtualBox, you may need to edit the local `m2ssh`
-and `m2unison` scripts to replace "localhost" with the IP address allocated by
-VirtualBox.
+If you are running Docker in VirtualBox, you may need to edit the provided 
+scripts to replace "localhost" with the IP address allocated by VirtualBox.
+
+Note: If you destroy and recreate containers, SSH may report warnings about
+changes in identity and refuse to connect. Use a text editor to remove
+"localhost" lines from your `~/.ssh/known_hosts` file to overcome this issue
+(you will then be prompted to accept new fingerprints on restart).
 
 ### 4. Install Magento
 
@@ -175,10 +202,13 @@ to help restrict access to the download keys.
 **Option 1: Existing Project**
 
 If you have an existing project with all the source code already under
-`shared/www` on your laptop, no additional configuration is needed. If you use
-volume mounting, the code will automatically be visible; if you use Unison,
-Unison will copy files on your laptop into the web container when it is
+`shared/www/magento2` on your laptop, no additional configuration is needed. If
+you use volume mounting, the code will automatically be visible; if you use
+Unison, Unison will copy files on your laptop into the web container when it is
 started.
+
+If using Unison, please note that symbolic links are not copied. You may need
+to run `composer install` to recreate any symbolic links required by Composer.
 
 **Option 2: Creating a New Project with Composer**
 
@@ -199,7 +229,7 @@ down Composer.)
 
 **Option 3: Getting Code from a GitHub Project**
 
-It is strongly recommended to saving your project code in a private git
+It is strongly recommended to save your project code in a private git
 repository on a hosting provider such as GitHub or BitBucket. The following
 describes how a new environment can get the code from such an environment.
 
@@ -228,8 +258,8 @@ the main steps most users would take.
  2. Make sure you have SSH keys set up to access the account. (See
     `magento-cloud ssh-keys` and `magento-cloud ssh-key:add`.) The
     `magento-cloud` CLI is preinstalled in the web service container.
- 3. In the console, click on "GIT" next to the "CLI" button to show the git
-    command to check out the project's source code.
+ 3. In the Magento Cloud console, click on "GIT" next to the "CLI" button to
+    show the git command to check out the project's source code.
  4. Remove the default `magento2` directory.
  5. Check out the cloud git repo under the `magento2` directory. MAKE SURE YOU
     CHANGE THE LAST GIT ARGUMENT TO `magento2`.
@@ -249,16 +279,15 @@ The following is a sample session
     chmod +x bin/magento
 
 Note that `magento-cloud get` is an alternative to the `git clone` command
-above. `magento-cloud build` runs the `composer install` and patching command,
-but also runs additional commands (such as `di-compile`) which you may not want
-to run during development.
+above, but it is recommended to use `git` directly to check the code out into
+the correct directory name (`/var/www/magento2`) as required by DevBox.
 
 **Option 5: Internal Development**
 
 TODO: THIS SECTION IS INDICATIVE OF FUTURE DIRECTION, NOT SUPPORTED YET.
 
-This section is ONLY relevant to internal Magento developers, or external
-developers wishing to submit a pull request. The following is NOT recommended
+This section is only relevant to internal Magento developers, or external
+developers wishing to submit a pull request. The following is not recommended
 for production sites. (It may however be worth exploring by extension
 developers.)
 
@@ -330,18 +359,17 @@ be added when the project was created above.
 
 **Loading Sample Data (Optional)**
 
-To *download* the Luma sample data, you may need to provide Composer
+To download the Luma sample data, you may need to provide Composer
 authentication details. If you already have a `~/.composer/auth.json` file you
 can run
 
     COMPOSER_AUTH=$(cat ~/.composer/auth.json) magento sampledata:deploy
 
-OTHERWISE run the following command and enter your public and private keys when
+If you don't have a `~/.composer/auth.json` file, just run
+`magento sampledata:deploy` and enter your public and private keys when
 prompted.
 
-    magento sampledata:deploy
-
-To *load* the downloaded sample data into the database, run
+To load the downloaded sample data into the database, run
 
     magento setup:upgrade
 
@@ -367,6 +395,9 @@ purposes, but makes all PHP scripts slower to execute.
 
     magento deploy:mode:set developer
     xdebug-on
+
+TODO: SEPARATE CLI AND WEB SERVER PHP CONFIGURATION, SO XDEBUG ON BY DEFAULT
+FOR WEB SERVER BUT OFF FOR CLI. THEN WE CAN DROP xdebug-on AND xdebug-off.
 
 ### 8. Connect with a Web Browser
 
@@ -399,25 +430,56 @@ If you are using Unison for file syncing, you also need to start up a Unison
 process (and keep it running). It is generally recommended to start this up
 after you have installed Magento above.
 
+Each time you log to your laptop, make sure you restart Unison, but be careful
+to not have multiple copies running in parallel. It is not recommended to do
+significant work on the project without Unison running to avoid merge conflicts
+(rare).
+
+**Mac**
+
+On Mac, first install Unison using "brew". This installs the correct command
+line version of Unison. Also install "unox" for a companion file watching
+utility.
+
+    brew install unison
+    brew tap eugenmayer/dockersync
+    brew install eugenmayer/dockersync/unox
+
+For Mac, create a "profile" file in `~/.unison/m2devbox-{myproj}.prf` ({myproj}
+is the current directory name) by running the following command.
+
+    ./m2unison-profile
+
+To perform a "once off" file synchronization, run
+
+    unison m2devbox-{myproj}
+
+To continuously synchronize files (recommended), run
+
+    unison -repeat watch m2devbox-{myproj}
+
+It is recommended to run Unison in a separate Terminal window so you can refer
+to its output if you ever need to do troubleshooting.
+
+If you ever restart the Docker containers, you may need to rerun
+`m2unison-profile` as the profile file containers the SSH port number used
+by the Unison container from the `docker-compose.yml` file. (Alternatively,
+using the `2223:22` syntax to lock down the SSH port number in
+`docker-composer.yml` avoids this problem.)
+
+**Windows**
+
 On Windows, run the supplied BAT file to launch Unison in a separate window
 using the START command or by double clicking the BAT file via Windows file
 explorer. This will automatically retrieve a copy of the `unison.exe` binary
-from the web container. Close the window to kill Unison.
+from the web container. A profile is not required as the BAT file uses command
+line arguments. Close the window to kill Unison.
 
     START m2unison.bat
 
-Mac binaries and a shell script are also provided. It is recommended to run the
-sync shell script in a separate Terminal window so you can refer to its output
-if you ever need to do troubleshooting.
-
-    ./m2unison.sh
-
-This shell script cannot be used on Linux, only Mac OSX. Use volume mounting on
-Linux (not Unison).
-
-Each time you log in, make sure you restart Unison, but be careful to not have
-multiple copies running in parallel. It is not recommended to do significant
-work on the project without Unison running to avoid merge conflicts (rare).
+There is a setting at the top of the script to choose between SSH access and
+direct sockets. Using plain sockets has been reported to hang occasionally so
+SSH has been enabled by default.
 
 ### 10. Configure PHP Storm (Optional)
 
